@@ -67,7 +67,11 @@ Echo ──"add milk"──▶ Alexa shopping list ──alexa_devices──▶ 
   account arrive silently, and a second Alexa Devices entry never receives its events at all.
   Nothing in HA 2026.7 re-reads a list on its own; a config-entry reload is the only full
   re-read. So every half hour the sweep reloads the source entry and forwards whatever the feed
-  missed. The worst case for any item, from any cause, becomes one interval, not never.
+  missed. The worst case for any item, from any cause, becomes one interval, not never. The
+  reload has a side effect the sweep also repairs: it replaces the list entity, and HA's
+  item-added trigger stays subscribed to the old one unless the reload happens to touch the
+  entity registry, so the bridge would silently stop firing. The sweep switches the bridge
+  automation off and on after each reload, which re-subscribes it.
 - **The alert** exists because Alexa says "added" whether or not anything downstream is alive.
   It watches HA's copy of the lists, which is exactly why it needs the sweep: an item HA never
   saw could never trip it.
@@ -161,7 +165,7 @@ Then Settings → Automations & scenes → **Create automation** → pick the bl
 | Blueprint | Fill in |
 |---|---|
 | To-do list bridge | Source to-do lists: the Alexa shopping-list entity. Target to-do list: your app's list entity. Grace period: 20. |
-| To-do list bridge — sweep | Source to-do list: the same Alexa entity. Target to-do list: the same. Run every: 30 minutes. Settle time after the reload: 60. |
+| To-do list bridge — sweep | Source to-do list: the same Alexa entity. Target to-do list: the same. Run every: 30 minutes. Settle time after the reload: 60. Automations to re-arm after the reload: the bridge automation you created in the row above. |
 | To-do list bridge — stuck-item alert | Entity-id pattern: `todo\.<account prefix>_`. Exclude pattern: `_to_do_list$` (the Alexa To-do list holds real to-dos, so it must never alert). Minutes before alerting: 10. Notification actions: one notify action, for example `notify.mobile_app_<your phone>` with the message `Items have sat for 10 minutes on: {{ stuck }} ({{ count }} open).` |
 
 On the alert, fill either *Entity-id pattern* or *Watched source lists*; with both empty it can
@@ -197,6 +201,8 @@ Edit the sweep automation → Run every. Thirty minutes means an item that misse
 waits at most thirty minutes. Hourly halves the number of reloads. Each reload takes about 45
 seconds, during which the source entry's entities are unavailable. The sweep is still needed on
 HA 2026.9 and later: that release re-reads a list after HA's own writes, not after Amazon's.
+Whatever the interval, keep the bridge listed under *Automations to re-arm after the reload*;
+without it the bridge stops firing after most reloads and only the sweep moves items.
 
 ### How to tell whether AnyList still accepts logins
 

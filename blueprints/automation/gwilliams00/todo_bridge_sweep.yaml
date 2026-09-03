@@ -51,6 +51,18 @@ blueprint:
           max: 300
           unit_of_measurement: s
           mode: box
+    rearm_automations:
+      name: Automations to re-arm after the reload
+      description: >-
+        Your "To-do list bridge" automation(s). A reload replaces the list entity, and the
+        item-added trigger stays subscribed to the old one whenever the reload leaves the entity
+        registry untouched (HA 2026.7), so the bridge silently stops firing. Turning the
+        automation off and on re-subscribes it.
+      default: []
+      selector:
+        entity:
+          domain: automation
+          multiple: true
 
 mode: single
 
@@ -61,6 +73,7 @@ triggers:
 variables:
   source: !input source_list
   target: !input target_list
+  rearm: !input rearm_automations
 
 actions:
   - action: homeassistant.reload_config_entry
@@ -68,6 +81,18 @@ actions:
       entity_id: !input source_list
   - delay:
       seconds: !input settle_seconds
+  # Re-subscribe the bridge's item-added trigger to the re-created entity (see the input's
+  # description). Off then on; skipped when the list is empty.
+  - if:
+      - condition: template
+        value_template: "{{ rearm | count > 0 }}"
+    then:
+      - action: automation.turn_off
+        target:
+          entity_id: "{{ rearm }}"
+      - action: automation.turn_on
+        target:
+          entity_id: "{{ rearm }}"
   - action: todo.get_items
     target:
       entity_id: "{{ source }}"

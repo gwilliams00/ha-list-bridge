@@ -32,6 +32,8 @@
       target_list: todo.<YOUR_TARGET_LIST>
       every: "/30"
       settle_seconds: 60
+      rearm_automations:
+        - automation.alexa_list_shopping_app   # the bridge above; its entity id is derived from its alias
 
 - alias: "Alexa list → shopping app: items stuck"
   description: >-
