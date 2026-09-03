@@ -70,8 +70,8 @@ Echo ──"add milk"──▶ Alexa shopping list ──alexa_devices──▶ 
   missed. The worst case for any item, from any cause, becomes one interval, not never. The
   reload has a side effect the sweep also repairs: it replaces the list entity, and HA's
   item-added trigger stays subscribed to the old one unless the reload happens to touch the
-  entity registry, so the bridge would silently stop firing. The sweep switches the bridge
-  automation off and on after each reload, which re-subscribes it.
+  entity registry, so the bridge would silently stop firing ([core #181242](https://github.com/home-assistant/core/issues/181242)).
+  The sweep switches the bridge automation off and on after each reload, which re-subscribes it.
 - **The alert** exists because Alexa says "added" whether or not anything downstream is alive.
   It watches HA's copy of the lists, which is exactly why it needs the sweep: an item HA never
   saw could never trip it.

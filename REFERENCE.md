@@ -95,7 +95,7 @@ Symptom, cause, and what to do. Found on HA 2026.7.4.
 
 | Symptom | Cause | What to do |
 |---|---|---|
-| The bridge stops firing after a config-entry reload, though the entity updates and the sweep still forwards | HA's `todo.item_added` trigger subscribes to the entity *object* and re-subscribes only on an entity-registry event; a reload re-creates the object without one unless a registry field changed | List the bridge under the sweep's *Automations to re-arm*; or switch the bridge automation off and on by hand after any manual reload |
+| The bridge stops firing after a config-entry reload, though the entity updates and the sweep still forwards | HA's `todo.item_added` trigger subscribes to the entity *object* and re-subscribes only on an entity-registry event; a reload re-creates the object without one unless a registry field changed ([core #181242](https://github.com/home-assistant/core/issues/181242)) | List the bridge under the sweep's *Automations to re-arm*; or switch the bridge automation off and on by hand after any manual reload |
 | A second Alexa Devices entry's list entity never changes after its first load | With two entries only one applies pushed to-do events; the other freezes at its initial sync | Run one entry — README, *How to handle a second Amazon account* |
 | An item added on the other Household account shows in the Alexa app, on your list too, but not in HA | Mirroring is real but its push does not reach the entity | Wait for the sweep, or reload the entry |
 | The alert never fired although an item sat for an hour | The alert reads HA's copy; HA never saw the item | Keep the sweep enabled; it refreshes that copy |
