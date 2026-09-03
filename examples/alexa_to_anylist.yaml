@@ -1,0 +1,50 @@
+# Alexa shopping list -> AnyList: the three automations as Home Assistant stores them, ready to
+# paste into automations.yaml (then reload automations) or to create one by one from the
+# blueprints in the UI. Three placeholders:
+#
+#   <ACCOUNT_PREFIX>    the part of your Alexa Devices entity ids before _shopping_list,
+#                       e.g. jane_doe_gmail_com  (Settings -> Devices & services -> Entities, filter "todo.")
+#   <YOUR_TARGET_LIST>  your target's entity id without the todo. prefix, e.g. anylist_grocery
+#   <YOUR_PHONE>        the notify action for your phone, e.g. notify.mobile_app_pixel_9 (or any
+#                       other notify action: notify.pushover, notify.telegram, ...)
+#
+# The other values are the blueprint defaults,
+# except the alert's exclude pattern, set so the Alexa To-do list (real to-dos) never alerts.
+
+- alias: "Alexa list → shopping app"
+  description: Instant path on Amazon's push feed.
+  use_blueprint:
+    path: gwilliams00/todo_bridge.yaml
+    input:
+      source_lists:
+        - todo.<ACCOUNT_PREFIX>_shopping_list
+      target_list: todo.<YOUR_TARGET_LIST>
+      grace_seconds: 20
+
+- alias: "Alexa list → shopping app: sweep"
+  description: >-
+    Twice an hour, reload the Alexa Devices entry and forward whatever the push feed missed.
+    Expect the account's Echo entities to be unavailable for ~45 s each time.
+  use_blueprint:
+    path: gwilliams00/todo_bridge_sweep.yaml
+    input:
+      source_list: todo.<ACCOUNT_PREFIX>_shopping_list
+      target_list: todo.<YOUR_TARGET_LIST>
+      every: "/30"
+      settle_seconds: 60
+
+- alias: "Alexa list → shopping app: items stuck"
+  description: >-
+    Any list on the account except the To-do list holding an item for 10 minutes -> one
+    notification. Pattern, not an entity list, so a list Alexa quietly creates is caught too.
+  use_blueprint:
+    path: gwilliams00/todo_stuck_alert.yaml
+    input:
+      entity_pattern: 'todo\.<ACCOUNT_PREFIX>_'
+      exclude_pattern: '_to_do_list$'
+      minutes: 10
+      notify_actions:
+        - action: notify.mobile_app_<YOUR_PHONE>     # or notify.pushover, notify.telegram, …
+          data:
+            title: "Groceries not reaching the shopping app"
+            message: "Items have sat for 10 minutes on: {{ stuck }} ({{ count }} open)."

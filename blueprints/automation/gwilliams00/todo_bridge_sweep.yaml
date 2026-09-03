@@ -1,0 +1,106 @@
+blueprint:
+  name: To-do list bridge — sweep
+  description: >-
+    Companion to "To-do list bridge". On a schedule, reload the integration behind a source
+    to-do list — which re-reads the list from its cloud service — then forward anything still
+    open into the target and remove it from the source.
+
+    Exists because some integrations learn about list changes only from a push feed that can
+    drop events, and never re-read a list on their own (Alexa Devices in HA 2026.7 is one).
+    The sweep bounds any missed event at one interval instead of forever, and refreshes the
+    view the stuck-item alert relies on.
+
+    The reloaded entry's entities are unavailable for the length of the reload (~45 s for
+    Alexa Devices).
+  domain: automation
+  author: gwilliams00
+  source_url: https://github.com/gwilliams00/ha-list-bridge/blob/main/blueprints/automation/gwilliams00/todo_bridge_sweep.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    source_list:
+      name: Source to-do list
+      description: The list to re-read. Its config entry is what gets reloaded.
+      selector:
+        entity:
+          domain: todo
+    target_list:
+      name: Target to-do list
+      selector:
+        entity:
+          domain: todo
+    every:
+      name: Run every
+      default: "/30"
+      selector:
+        select:
+          options:
+            - label: 15 minutes
+              value: "/15"
+            - label: 30 minutes
+              value: "/30"
+            - label: 60 minutes
+              value: "0"
+    settle_seconds:
+      name: Settle time after the reload
+      description: How long the reload takes to finish and populate the entity.
+      default: 60
+      selector:
+        number:
+          min: 10
+          max: 300
+          unit_of_measurement: s
+          mode: box
+
+mode: single
+
+triggers:
+  - trigger: time_pattern
+    minutes: !input every
+
+variables:
+  source: !input source_list
+  target: !input target_list
+
+actions:
+  - action: homeassistant.reload_config_entry
+    target:
+      entity_id: !input source_list
+  - delay:
+      seconds: !input settle_seconds
+  - action: todo.get_items
+    target:
+      entity_id: "{{ source }}"
+    data:
+      status: needs_action
+    response_variable: pending
+  - action: todo.get_items
+    target:
+      entity_id: "{{ target }}"
+    data:
+      status: needs_action
+    response_variable: existing
+  - variables:
+      already: >-
+        {{ existing[target]['items'] | map(attribute='summary') | map('lower') | list }}
+      fresh: "{{ pending[source]['items'] }}"
+  # Same body as the bridge. If the reload itself woke the bridge automation (it fires for
+  # items new to the entity), that run finishes during the settle delay and this finds nothing.
+  - repeat:
+      for_each: "{{ fresh }}"
+      sequence:
+        - if:
+            - condition: template
+              value_template: "{{ (repeat.item.summary | lower) not in already }}"
+          then:
+            - action: todo.add_item
+              target:
+                entity_id: "{{ target }}"
+              data:
+                item: "{{ repeat.item.summary }}"
+        - action: todo.remove_item
+          continue_on_error: true
+          target:
+            entity_id: "{{ source }}"
+          data:
+            item: "{{ repeat.item.uid }}"

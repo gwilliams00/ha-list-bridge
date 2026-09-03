@@ -1,0 +1,99 @@
+blueprint:
+  name: To-do list bridge — stuck-item alert
+  description: >-
+    Companion to "To-do list bridge". A voice assistant says "added" whether or not anything
+    downstream is alive. A to-do entity's state is its count of open items, so if any watched
+    source list still holds an item after the given number of minutes, the bridge, the source's
+    session or the target's login is down: run your notification actions once.
+
+    Watch lists either by picking entities, or by an entity-id pattern (a regular expression
+    matched against the id, e.g. `todo\.myaccount_gmail_com_`) — the pattern form also catches
+    lists the voice assistant creates later ("add X to my grocery list" quietly makes a new
+    Alexa list). An exclude pattern drops lists that legitimately hold items, such as a to-do
+    list.
+
+    Fires once per episode — again only after the lists have been clear and then stuck again.
+    The variables `stuck` (list names, comma-separated) and `count` (open items) are available
+    to your actions. It watches Home Assistant's copy of the lists: pair it with the sweep so
+    that copy is refreshed from the cloud on a schedule.
+  domain: automation
+  author: gwilliams00
+  source_url: https://github.com/gwilliams00/ha-list-bridge/blob/main/blueprints/automation/gwilliams00/todo_stuck_alert.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    watched_lists:
+      name: Watched source lists
+      description: Ignored when an entity-id pattern is given.
+      default: []
+      selector:
+        entity:
+          domain: todo
+          multiple: true
+    entity_pattern:
+      name: Entity-id pattern (optional)
+      description: Regular expression against todo entity ids; overrides the entity list.
+      default: ""
+      selector:
+        text: {}
+    exclude_pattern:
+      name: Exclude pattern (optional)
+      description: Regular expression; matching entity ids are never watched, e.g. `_to_do_list$`.
+      default: ""
+      selector:
+        text: {}
+    minutes:
+      name: Minutes before alerting
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 240
+          unit_of_measurement: min
+          mode: box
+    notify_actions:
+      name: Notification actions
+      description: >-
+        For example notify.mobile_app_… or notify.pushover with a message such as
+        "Items have sat for a while on: {{ stuck }} ({{ count }} open)".
+      selector:
+        action: {}
+
+mode: single
+
+trigger_variables:
+  watched: !input watched_lists
+  pattern: !input entity_pattern
+  exclude: !input exclude_pattern
+
+triggers:
+  - trigger: template
+    value_template: >-
+      {% set ents = (states.todo | selectattr('entity_id', 'match', pattern) | list)
+                    if pattern else expand(watched) %}
+      {% set ents = (ents | rejectattr('entity_id', 'search', exclude) | list)
+                    if exclude else ents %}
+      {{ ents | map(attribute='state') | reject('in', ['unavailable', 'unknown'])
+         | map('int') | sum > 0 }}
+    for:
+      minutes: !input minutes
+
+variables:
+  watched: !input watched_lists
+  pattern: !input entity_pattern
+  exclude: !input exclude_pattern
+
+actions:
+  - variables:
+      ents: >-
+        {% set ents = (states.todo | selectattr('entity_id', 'match', pattern) | list)
+                      if pattern else expand(watched) %}
+        {{ ((ents | rejectattr('entity_id', 'search', exclude) | list) if exclude else ents)
+           | map(attribute='entity_id') | list }}
+      stuck: >-
+        {{ expand(ents) | rejectattr('state', 'in', ['0', 'unavailable', 'unknown'])
+           | map(attribute='name') | list | join(', ') }}
+      count: >-
+        {{ expand(ents) | map(attribute='state')
+           | reject('in', ['unavailable', 'unknown']) | map('int') | sum }}
+  - sequence: !input notify_actions

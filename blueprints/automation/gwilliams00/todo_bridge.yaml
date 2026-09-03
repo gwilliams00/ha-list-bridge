@@ -1,0 +1,101 @@
+blueprint:
+  name: To-do list bridge
+  description: >-
+    Forward every item added to one or more source to-do lists into a target to-do list, then
+    remove it from the source. Built for "Alexa, add milk to the shopping list" → AnyList after
+    Amazon retired third-party list access, but nothing in it is Alexa- or AnyList-specific.
+
+    Waits a grace period first so a voice assistant's "remove that" still works (an undo arrives
+    as a deletion, so the re-check after the delay no longer sees the item). Forwards only the
+    items the trigger announced, so an item that cannot be removed is not copied again on every
+    later add. Skips names already active on the target (the target's own merge/undo semantics
+    are preserved). Removes by uid, not by name, because some services re-capitalise names.
+    A refused removal never aborts the other items.
+  domain: automation
+  author: gwilliams00
+  source_url: https://github.com/gwilliams00/ha-list-bridge/blob/main/blueprints/automation/gwilliams00/todo_bridge.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    source_lists:
+      name: Source to-do lists
+      description: The lists a voice assistant writes into, e.g. an Alexa Devices shopping list.
+      selector:
+        entity:
+          domain: todo
+          multiple: true
+    target_list:
+      name: Target to-do list
+      description: Where items should end up, e.g. an AnyList, Todoist, Bring or Mealie list.
+      selector:
+        entity:
+          domain: todo
+    grace_seconds:
+      name: Grace period
+      description: >-
+        Seconds to wait before forwarding, so "remove that" on the source still works. 20 s is
+        long enough to hear the read-back and object.
+      default: 20
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: s
+          mode: box
+
+# queued, not parallel: two quick adds would otherwise both read the same pending items and
+# forward them twice. The first run forwards everything pending at the end of its delay; the
+# queued second run then finds nothing new and exits.
+mode: queued
+
+triggers:
+  - trigger: todo.item_added
+    target:
+      entity_id: !input source_lists
+
+variables:
+  target: !input target_list
+
+actions:
+  - delay:
+      seconds: !input grace_seconds
+  - action: todo.get_items
+    target:
+      entity_id: "{{ trigger.entity_id }}"
+    data:
+      status: needs_action
+    response_variable: pending
+  # Only the items THIS trigger announced, and only if still open after the grace period.
+  - variables:
+      fresh: >-
+        {{ pending[trigger.entity_id]['items']
+           | selectattr('uid', 'in', trigger.item_ids) | list }}
+  - action: todo.get_items
+    target:
+      entity_id: "{{ target }}"
+    data:
+      status: needs_action
+    response_variable: existing
+  - variables:
+      already: >-
+        {{ existing[target]['items'] | map(attribute='summary') | map('lower') | list }}
+  - repeat:
+      for_each: "{{ fresh }}"
+      sequence:
+        - if:
+            - condition: template
+              value_template: "{{ (repeat.item.summary | lower) not in already }}"
+          then:
+            - action: todo.add_item
+              target:
+                entity_id: "{{ target }}"
+              data:
+                item: "{{ repeat.item.summary }}"
+        # After the add: a refused removal leaves the item visible on the source, where the
+        # stuck-item alert can name it, instead of losing it.
+        - action: todo.remove_item
+          continue_on_error: true
+          target:
+            entity_id: "{{ trigger.entity_id }}"
+          data:
+            item: "{{ repeat.item.uid }}"
