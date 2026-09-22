@@ -11,6 +11,11 @@ blueprint:
     later add. Skips names already active on the target (the target's own merge/undo semantics
     are preserved). Removes by uid, not by name, because some services re-capitalise names.
     A refused removal never aborts the other items.
+
+    Writes one logbook line per item, on the source list, saying whether it was forwarded or was
+    already open on the target. That skip is otherwise silent, which makes "never arrived" and
+    "was already there" indistinguishable after the fact; the logbook keeps the answer for as
+    long as your recorder does, which outlives the automation's stored traces.
   domain: automation
   author: gwilliams00
   source_url: https://github.com/gwilliams00/ha-list-bridge/blob/main/blueprints/automation/gwilliams00/todo_bridge.yaml
@@ -91,6 +96,19 @@ actions:
                 entity_id: "{{ target }}"
               data:
                 item: "{{ repeat.item.summary }}"
+            - action: logbook.log
+              data:
+                name: "{{ repeat.item.summary }}"
+                message: "forwarded to {{ state_attr(target, 'friendly_name') or target }}"
+                entity_id: "{{ trigger.entity_id }}"
+          else:
+            - action: logbook.log
+              data:
+                name: "{{ repeat.item.summary }}"
+                message: >-
+                  already open on {{ state_attr(target, 'friendly_name') or target }} — removed
+                  from the source without copying
+                entity_id: "{{ trigger.entity_id }}"
         # After the add: a refused removal leaves the item visible on the source, where the
         # stuck-item alert can name it, instead of losing it.
         - action: todo.remove_item

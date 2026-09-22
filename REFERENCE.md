@@ -20,13 +20,20 @@ Mode queued. Trigger: `todo.item_added` on the sources.
 
 | Input | Type | Default | Meaning |
 |---|---|---|---|
-| Source to-do list | `todo` entity | — | Its config entry is reloaded, then it is read |
+| Source to-do lists | one or more `todo` entities | — | Their config entries are reloaded — once per entry, however many of that entry's lists you pick — then each list is read. A list no entity backs (not created in the vendor's app yet, or deleted there) is skipped; if none of them exists the run stops |
 | Target to-do list | `todo` entity | — | Where items are added |
 | Run every | 15 / 30 / 60 minutes | 30 | `time_pattern` minutes `/15`, `/30`, or `0` |
 | Settle time after the reload | seconds, 10–300 | 60 | Delay after the reload before reading |
 | Automations to re-arm after the reload | `automation` entities | none | Switched off and on after the reload, so their item-added triggers re-subscribe to the re-created entity |
 
-Mode single. Calls `homeassistant.reload_config_entry` on the source entity.
+Mode single. Calls `homeassistant.reload_config_entry` on the source entities; HA collects their
+config entry ids into a set, so lists sharing an entry cost one reload.
+
+Both the bridge and the sweep write one `logbook.log` line per item, attached to the source list:
+either *forwarded/swept to `<target>`*, or *already open on `<target>` — removed from the source
+without copying*. Traces carry the same detail but are capped per automation (`stored_traces`,
+default 5), so on a 30-minute sweep the run you want is evicted within hours; the logbook lasts as
+long as the recorder's `purge_keep_days`.
 
 **To-do list bridge — stuck-item alert** — `blueprints/automation/gwilliams00/todo_stuck_alert.yaml`
 

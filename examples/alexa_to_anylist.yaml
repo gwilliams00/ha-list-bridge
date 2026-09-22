@@ -13,6 +13,8 @@
 
 - alias: "Alexa list → shopping app"
   description: Instant path on Amazon's push feed.
+  trace:
+    stored_traces: 20     # the default 5 covers one busy afternoon of adds, not the week
   use_blueprint:
     path: gwilliams00/todo_bridge.yaml
     input:
@@ -25,10 +27,13 @@
   description: >-
     Twice an hour, reload the Alexa Devices entry and forward whatever the push feed missed.
     Expect the account's Echo entities to be unavailable for ~45 s each time.
+  trace:
+    stored_traces: 60     # 48 runs a day evict the one you want from the default 5 in hours
   use_blueprint:
     path: gwilliams00/todo_bridge_sweep.yaml
     input:
-      source_list: todo.<ACCOUNT_PREFIX>_shopping_list
+      source_list:
+        - todo.<ACCOUNT_PREFIX>_shopping_list   # same lists as the bridge above; one reload covers all
       target_list: todo.<YOUR_TARGET_LIST>
       every: "/30"
       settle_seconds: 60

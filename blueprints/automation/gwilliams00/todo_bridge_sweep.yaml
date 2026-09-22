@@ -1,14 +1,22 @@
 blueprint:
   name: To-do list bridge — sweep
   description: >-
-    Companion to "To-do list bridge". On a schedule, reload the integration behind a source
-    to-do list — which re-reads the list from its cloud service — then forward anything still
-    open into the target and remove it from the source.
+    Companion to "To-do list bridge". On a schedule, reload the integration behind one or more
+    source to-do lists — which re-reads them from their cloud service — then forward anything
+    still open into the target and remove it from the source.
 
     Exists because some integrations learn about list changes only from a push feed that can
     drop events, and never re-read a list on their own (Alexa Devices in HA 2026.7 is one).
     The sweep bounds any missed event at one interval instead of forever, and refreshes the
     view the stuck-item alert relies on.
+
+    Several source lists cost nothing extra when they come from the same integration: the
+    reload is per config entry, so lists sharing one entry are re-read together, once. A source
+    list that does not exist yet — or that someone deleted in the vendor's app — is skipped
+    rather than failing the run, so the remaining lists still get swept.
+
+    Writes the same per-item logbook lines as the bridge, so what a sweep forwarded — or skipped
+    as already open on the target — survives long after its trace is evicted.
 
     The reloaded entry's entities are unavailable for the length of the reload (~45 s for
     Alexa Devices).
@@ -19,11 +27,14 @@ blueprint:
     min_version: 2026.7.0
   input:
     source_list:
-      name: Source to-do list
-      description: The list to re-read. Its config entry is what gets reloaded.
+      name: Source to-do lists
+      description: >-
+        The lists to re-read. Their config entries are what get reloaded — one reload per entry,
+        however many lists you pick from it. Use the same lists as your "To-do list bridge".
       selector:
         entity:
           domain: todo
+          multiple: true
     target_list:
       name: Target to-do list
       selector:
@@ -71,7 +82,10 @@ triggers:
     minutes: !input every
 
 variables:
-  source: !input source_list
+  # Still a bare string on installs configured before this input accepted several lists, so it
+  # is normalised in the actions — after the reload, because a list added in the vendor's app
+  # since the last reload does not exist in Home Assistant until then.
+  configured: !input source_list
   target: !input target_list
   rearm: !input rearm_automations
 
@@ -93,9 +107,21 @@ actions:
       - action: automation.turn_on
         target:
           entity_id: "{{ rearm }}"
+  # Drop configured lists that no entity backs — not created in the vendor's app yet, or deleted
+  # there. A list that exists but is unavailable is kept, so a broken integration still fails
+  # loudly rather than being swept under the carpet.
+  - variables:
+      sources: >-
+        {% set want = configured if configured is not string else [configured] %}
+        {{ want | select('in', states.todo | map(attribute='entity_id') | list) | list }}
+  - if:
+      - condition: template
+        value_template: "{{ sources | count == 0 }}"
+    then:
+      - stop: No configured source list exists in Home Assistant
   - action: todo.get_items
     target:
-      entity_id: "{{ source }}"
+      entity_id: "{{ sources }}"
     data:
       status: needs_action
     response_variable: pending
@@ -108,7 +134,17 @@ actions:
   - variables:
       already: >-
         {{ existing[target]['items'] | map(attribute='summary') | map('lower') | list }}
-      fresh: "{{ pending[source]['items'] }}"
+      # One flat list of items across every source, each carrying the list it came from, so the
+      # body below removes from the right one.
+      fresh: >-
+        {% set ns = namespace(items=[]) %}
+        {% for eid in sources %}
+          {% for item in pending[eid]['items'] %}
+            {% set ns.items = ns.items
+               + [{'list': eid, 'uid': item.uid, 'summary': item.summary}] %}
+          {% endfor %}
+        {% endfor %}
+        {{ ns.items }}
   # Same body as the bridge. If the reload itself woke the bridge automation (it fires for
   # items new to the entity), that run finishes during the settle delay and this finds nothing.
   - repeat:
@@ -123,9 +159,22 @@ actions:
                 entity_id: "{{ target }}"
               data:
                 item: "{{ repeat.item.summary }}"
+            - action: logbook.log
+              data:
+                name: "{{ repeat.item.summary }}"
+                message: "swept to {{ state_attr(target, 'friendly_name') or target }}"
+                entity_id: "{{ repeat.item.list }}"
+          else:
+            - action: logbook.log
+              data:
+                name: "{{ repeat.item.summary }}"
+                message: >-
+                  already open on {{ state_attr(target, 'friendly_name') or target }} — removed
+                  from the source without copying
+                entity_id: "{{ repeat.item.list }}"
         - action: todo.remove_item
           continue_on_error: true
           target:
-            entity_id: "{{ source }}"
+            entity_id: "{{ repeat.item.list }}"
           data:
             item: "{{ repeat.item.uid }}"

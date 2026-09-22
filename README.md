@@ -16,6 +16,9 @@ Home Assistant blueprints that forward items from one to-do list into another. B
   Household account.
 - **Tells you when it is broken.** One notification when an item has sat on the Alexa list too
   long, with the list named.
+- **Says what it did, durably.** One logbook line per item on the source list — forwarded, or
+  already open on the target and dropped without copying — so the same question asked a week
+  later still has an answer, long after the automation's traces have rolled over.
 - **Generic.** Any `todo` entity to any `todo` entity; nothing in the blueprints knows about
   Alexa or AnyList. Three blueprints, twelve inputs, no custom code.
 - **Documented failure modes.** Every trap found while building it, with cause and fix. The one
@@ -165,7 +168,7 @@ Then Settings → Automations & scenes → **Create automation** → pick the bl
 | Blueprint | Fill in |
 |---|---|
 | To-do list bridge | Source to-do lists: the Alexa shopping-list entity. Target to-do list: your app's list entity. Grace period: 20. |
-| To-do list bridge — sweep | Source to-do list: the same Alexa entity. Target to-do list: the same. Run every: 30 minutes. Settle time after the reload: 60. Automations to re-arm after the reload: the bridge automation you created in the row above. |
+| To-do list bridge — sweep | Source to-do lists: the same Alexa entity (the same lists as the bridge, always). Target to-do list: the same. Run every: 30 minutes. Settle time after the reload: 60. Automations to re-arm after the reload: the bridge automation you created in the row above. |
 | To-do list bridge — stuck-item alert | Entity-id pattern: `todo\.<account prefix>_`. Exclude pattern: `_to_do_list$` (the Alexa To-do list holds real to-dos, so it must never alert). Minutes before alerting: 10. Notification actions: one notify action, for example `notify.mobile_app_<your phone>` with the message `Items have sat for 10 minutes on: {{ stuck }} ({{ count }} open).` |
 
 On the alert, fill either *Entity-id pattern* or *Watched source lists*; with both empty it can
@@ -194,6 +197,24 @@ Each guide assumes the setup above is working.
 Add that app's to-do integration, then edit the bridge and sweep automations and change the
 target to its entity. Nothing else changes. The dedupe compares item names case-insensitively
 against the target's open items, so the target's own behaviour for repeated names is preserved.
+
+### How to forward a second list
+
+A voice assistant creates a list whenever a phrase does not match an existing one — "add milk to
+my grocery list" quietly makes an Alexa list called *grocery*, and items on it are never
+forwarded, because the bridge watches the lists you named. The stuck-item alert's pattern form
+catches the new list and tells you, which is how you find out at all.
+
+To forward it too: create the list in the vendor's app first, so the integration has something to
+expose, then reload that integration and find the new `todo` entity. Add it to **both** the
+bridge's *Source to-do lists* and the sweep's — the two must always name the same lists, or a
+list gets the instant path with no missed-push floor under it, or the reverse. Lists from one
+integration share a config entry, so the sweep still reloads once and the Echo entities are still
+unavailable only ~45 s per interval.
+
+Keep them in step when a list goes away, too. A household member deleting the list in the app
+takes the entity with it; the sweep skips a configured list that no entity backs, so the rest
+keep working, but remove it from both automations once it is gone for good.
 
 ### How to change how often the sweep runs
 
@@ -224,8 +245,27 @@ Your login can delete them from both lists.
 Open To-do lists in HA next to the Alexa app. If an item is on the Alexa list in the app but not
 in HA's copy, the push feed missed it; the next sweep will pick it up, and a manual reload of
 the Alexa Devices entry picks it up now. If it is in HA's copy and still there ten minutes
-later, the bridge or the target failed: Settings → Automations → the bridge → Traces shows the
-run and its error.
+later, the bridge or the target failed.
+
+Then open the **logbook for the source list**. Every item the bridge or the sweep handled has a
+line there naming it — *forwarded to …* or *already open on … — removed from the source without
+copying*. Nothing for an item that left the list means neither automation moved it. That second
+message is the one to know about: a name already open on the target is removed from the source
+and not copied, by design, so "it never arrived" and "it was already there" look identical
+without the line.
+
+For the full detail of a run, Settings → Automations → the automation → Traces. ⚠️ **Raise
+`stored_traces` before you need it.** It defaults to 5 per automation, and a 30-minute sweep
+runs 48 times a day, so the run you want to inspect is evicted within hours — long before
+anyone reads the alert it fired. Add to the automation (not the blueprint):
+
+```yaml
+trace:
+  stored_traces: 60
+```
+
+Traces do survive a Home Assistant restart — they are saved to `.storage/trace.saved_traces` —
+so the cap, not the restart, is what loses them.
 
 ## Status
 
