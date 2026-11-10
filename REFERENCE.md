@@ -14,7 +14,14 @@ Information for looking up; nothing here tells you what to do. Setup and tasks a
 | Target to-do list | `todo` entity | — | Where items are added |
 | Grace period | seconds, 0–300 | 20 | Wait before forwarding, so an undo on the source still works |
 
-Mode queued. Trigger: `todo.item_added` on the sources.
+Mode queued. Trigger: `todo.item_added` on the sources. After the grace period, if none of the
+announced items is still open, the run stops. Otherwise it calls `homeassistant.update_entity` on
+the target before reading it for the duplicate check. On an integration built on HA's
+`DataUpdateCoordinator` that requests a refresh and waits for it, with two exceptions where it
+returns at once and the read sees older data: within 10 s of the previous requested refresh
+(the data is then at most that old), and while the integration's own scheduled poll is running
+(the data is then up to one poll interval old). A failed refresh leaves the target unavailable,
+so the run stops and the item stays on the source for the sweep.
 
 **To-do list bridge — sweep** — `blueprints/automation/gwilliams00/todo_bridge_sweep.yaml`
 
@@ -27,7 +34,9 @@ Mode queued. Trigger: `todo.item_added` on the sources.
 | Automations to re-arm after the reload | `automation` entities | none | Switched off and on after the reload, so their item-added triggers re-subscribe to the re-created entity |
 
 Mode single. Calls `homeassistant.reload_config_entry` on the source entities; HA collects their
-config entry ids into a set, so lists sharing an entry cost one reload.
+config entry ids into a set, so lists sharing an entry cost one reload. If no source list holds an
+open item after the reload, the run stops there; otherwise it re-reads the target the same way as
+the bridge before the duplicate check.
 
 Both the bridge and the sweep write one `logbook.log` line per item, attached to the source list:
 either *forwarded/swept to `<target>`*, or *already open on `<target>` — removed from the source
@@ -109,5 +118,6 @@ Symptom, cause, and what to do. Found on HA 2026.7.4.
 | A `todo.add_item` or `todo.remove_item` through HA "succeeded" but the entity still shows the old state | 2026.7 never re-reads after its own write; a missed push leaves the cache stale | Reload the entry, or upgrade to 2026.9+ |
 | `todo.remove_item` by name says the item cannot be found | Amazon re-capitalises names ("bridge test" → "Bridge test"); HA matches summaries exactly | Remove by uid — the blueprints already do |
 | Every `todo` action returns 500 for a few minutes after a burst of calls | The Alexa coordinator failed; entities are unavailable until the next successful poll | Wait five minutes; do not read a retry inside the window as evidence |
+| AnyList stops syncing on every device, and AnyList emails that syncing is disabled for an hour because the account downloaded an unusually large amount of data; the integration logs `HTTP 429` `sync_rate_limited` | AnyList rate-limits accounts. The moryoav fork 0.8.0 downloads the whole account twice per poll, so its default 60 s interval is about 120 downloads an hour, which tripped the limit (observed 2026-11-10) | Set the integration's polling interval to 3600 s. The bridge and the sweep re-read the target themselves before each duplicate check. The restriction lifts on its own an hour after it starts |
 | Lists you never made appear in HA | Phrases like "add X to my grocery list" make Alexa create a custom list of that name | Alexa app → More → Lists & Notes → archive → View Archive → delete; watch by pattern so new ones are caught |
 

@@ -16,6 +16,10 @@ blueprint:
     already open on the target. That skip is otherwise silent, which makes "never arrived" and
     "was already there" indistinguishable after the fact; the logbook keeps the answer for as
     long as your recorder does, which outlives the automation's stored traces.
+
+    Asks the target's integration to re-read the target just before that check, so an item
+    added there from a phone a minute ago counts as already open, and the target can poll its
+    cloud service slowly. An undo within the grace period costs no re-read.
   domain: automation
   author: gwilliams00
   source_url: https://github.com/gwilliams00/ha-list-bridge/blob/main/blueprints/automation/gwilliams00/todo_bridge.yaml
@@ -75,6 +79,16 @@ actions:
       fresh: >-
         {{ pending[trigger.entity_id]['items']
            | selectattr('uid', 'in', trigger.item_ids) | list }}
+  # Undone within the grace period: nothing to forward, so don't spend a fetch on the target.
+  - if:
+      - condition: template
+        value_template: "{{ fresh | count == 0 }}"
+    then:
+      - stop: Nothing announced is still open
+  # Re-read the target now, so the duplicate check sees items added there since its last poll.
+  - action: homeassistant.update_entity
+    target:
+      entity_id: "{{ target }}"
   - action: todo.get_items
     target:
       entity_id: "{{ target }}"
