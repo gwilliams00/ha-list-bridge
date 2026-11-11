@@ -62,7 +62,8 @@ Echo ──"add milk"──▶ Alexa shopping list ──alexa_devices──▶ 
   as a deletion, and the re-check after the delay simply no longer sees the item. It forwards
   only the items its trigger announced, so an item that cannot be removed is not copied again on
   every later add. It skips names already active on the target, which keeps the target's own
-  merge behaviour intact, and it removes by uid because Amazon re-capitalises names. A refused
+  merge behaviour intact; it re-reads the target just before that check, so an item added from
+  a phone a minute earlier counts. It removes by uid because Amazon re-capitalises names. A refused
   removal is tolerated; a failed add stops the run, so the item stays on the Alexa list where
   the alert can name it.
 - **The sweep** is the floor under the bridge. Amazon's push feed is reliable for items you add
@@ -136,6 +137,11 @@ Download → restart HA → Add integration → AnyList → your AnyList login �
 you shop from. Open To-do lists again: the AnyList list appears with its real items. Type an
 item into it from HA and check it shows in the AnyList app on a phone.
 
+Then open the integration's options and set the polling interval to its maximum, 3600 seconds.
+Each poll downloads your whole AnyList account, and AnyList suspends syncing on every device for
+an hour when an account downloads too often (see `REFERENCE.md`, *Traps*). The bridge does not
+need the poll: it asks for a fresh copy of the list itself, just before each duplicate check.
+
 For another app, add its integration the same way and note its `todo` entity id.
 
 ### 4. Clear the Alexa list
@@ -197,6 +203,9 @@ Each guide assumes the setup above is working.
 Add that app's to-do integration, then edit the bridge and sweep automations and change the
 target to its entity. Nothing else changes. The dedupe compares item names case-insensitively
 against the target's open items, so the target's own behaviour for repeated names is preserved.
+Both automations ask the target's integration to re-read the list (`homeassistant.update_entity`)
+just before that comparison, and only when there is something to forward, so a target that
+polls a cloud service can be set to poll as slowly as its integration allows.
 
 ### How to forward a second list
 

@@ -16,7 +16,8 @@ blueprint:
     rather than failing the run, so the remaining lists still get swept.
 
     Writes the same per-item logbook lines as the bridge, so what a sweep forwarded — or skipped
-    as already open on the target — survives long after its trace is evicted.
+    as already open on the target — survives long after its trace is evicted. Like the bridge,
+    it re-reads the target just before checking it, and only when there is something to move.
 
     The reloaded entry's entities are unavailable for the length of the reload (~45 s for
     Alexa Devices).
@@ -125,15 +126,7 @@ actions:
     data:
       status: needs_action
     response_variable: pending
-  - action: todo.get_items
-    target:
-      entity_id: "{{ target }}"
-    data:
-      status: needs_action
-    response_variable: existing
   - variables:
-      already: >-
-        {{ existing[target]['items'] | map(attribute='summary') | map('lower') | list }}
       # One flat list of items across every source, each carrying the list it came from, so the
       # body below removes from the right one.
       fresh: >-
@@ -145,6 +138,25 @@ actions:
           {% endfor %}
         {% endfor %}
         {{ ns.items }}
+  # Most sweeps find nothing; those must not cost a fetch on the target.
+  - if:
+      - condition: template
+        value_template: "{{ fresh | count == 0 }}"
+    then:
+      - stop: Nothing open on the source lists
+  # Re-read the target now, so the duplicate check sees items added there since its last poll.
+  - action: homeassistant.update_entity
+    target:
+      entity_id: "{{ target }}"
+  - action: todo.get_items
+    target:
+      entity_id: "{{ target }}"
+    data:
+      status: needs_action
+    response_variable: existing
+  - variables:
+      already: >-
+        {{ existing[target]['items'] | map(attribute='summary') | map('lower') | list }}
   # Same body as the bridge. If the reload itself woke the bridge automation (it fires for
   # items new to the entity), that run finishes during the settle delay and this finds nothing.
   - repeat:
